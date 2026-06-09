@@ -503,175 +503,158 @@ class FundQAAssistant:
     def _handle_qualified_investor(self, query: str, rule: Dict[str, Any]) -> str:
         """处理合格投资者相关查询"""
         if "最低" in query or "多少" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n合格投资者的最低投资金额为100万元。"
+            return f"{rule['question']}\n\n合格投资者的最低投资金额为100万元。"
         elif "条件" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n{rule['answer']}"
+            return f"{rule['question']}\n\n{rule['answer']}"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_minimum_capital(self, query: str, rule: Dict[str, Any]) -> str:
         """处理最低募集规模查询"""
         if "多少" in query or "金额" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n私募证券投资基金的最低募集规模为1000万元人民币。"
+            return f"{rule['question']}\n\n私募证券投资基金的最低募集规模为1000万元人民币。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_manager_qualification(self, query: str, rule: Dict[str, Any]) -> str:
         """处理管理人资质查询"""
         if "怎么" in query or "怎样" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n成为私募基金管理人需要在中国证券投资基金业协会登记，满足公司运营两年、高管从业资格、财务报告和风险管理体系等条件。"
+            return f"{rule['question']}\n\n成为私募基金管理人需要在中国证券投资基金业协会登记，满足公司运营两年、高管从业资格、财务报告和风险管理体系等条件。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_raising_period(self, query: str, rule: Dict[str, Any]) -> str:
         """处理募集期查询"""
         if "多长" in query or "时间" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n私募基金的募集期通常为6个月。"
+            return f"{rule['question']}\n\n私募基金的募集期通常为6个月。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_risk_reserve(self, query: str, rule: Dict[str, Any]) -> str:
         """处理风险准备金查询"""
         if "多少" in query or "比例" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n私募基金管理人需要按照管理费收入的10%计提风险准备金。"
+            return f"{rule['question']}\n\n私募基金管理人需要按照管理费收入的10%计提风险准备金。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_risk_rating(self, query: str, rule: Dict[str, Any]) -> str:
         """处理风险等级查询"""
         if "R1" in query or "R2" in query or "R3" in query or "R4" in query or "R5" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n{rule['answer']}"
+            return f"{rule['question']}\n\n{rule['answer']}"
         else:
-            return f"【{rule['category']}】{rule['question']}\n\n私募基金按风险程度分为R1（谨慎型）到R5（激进型）五个等级。"
+            return f"{rule['question']}\n\n私募基金按风险程度分为R1（谨慎型）到R5（激进型）五个等级。"
 
     def _handle_manager_responsibility(self, query: str, rule: Dict[str, Any]) -> str:
         """处理管理人责任查询"""
         if "义务" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n私募基金管理人需要履行忠实义务、勤勉义务、披露义务、风控责任和信息保管责任。"
+            return f"{rule['question']}\n\n私募基金管理人需要履行忠实义务、勤勉义务、披露义务、风控责任和信息保管责任。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_disclosure(self, query: str, rule: Dict[str, Any]) -> str:
         """处理信息披露查询"""
         if "什么" in query or "哪些" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n私募基金需要披露基金净值、投资运作情况、财务指标、重大事项和风险提示信息。"
+            return f"{rule['question']}\n\n私募基金需要披露基金净值、投资运作情况、财务指标、重大事项和风险提示信息。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_contract_content(self, query: str, rule: Dict[str, Any]) -> str:
         """处理基金合同内容查询"""
         if "必须" in query or "包含" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n基金合同必须包含当事人的权利义务、资产管理原则、估值方法、收益分配、存续期、费用计算、信息披露方式和风险揭示等内容。"
+            return f"{rule['question']}\n\n基金合同必须包含当事人的权利义务、资产管理原则、估值方法、收益分配、存续期、费用计算、信息披露方式和风险揭示等内容。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_regulatory_reporting(self, query: str, rule: Dict[str, Any]) -> str:
         """处理监管报告查询"""
         if "什么" in query or "哪些" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n私募基金需要向协会提交定期报告、重大事项报告、临时报告和年度报告。"
+            return f"{rule['question']}\n\n私募基金需要向协会提交定期报告、重大事项报告、临时报告和年度报告。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_investment_assets(self, query: str, rule: Dict[str, Any]) -> str:
         """处理投资资产查询"""
         if "哪些" in query or "什么" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n私募基金可以投资股票、股权、债券、票据、商品、衍生品、不动产等资产，具体范围由基金合同约定。"
+            return f"{rule['question']}\n\n私募基金可以投资股票、股权、债券、票据、商品、衍生品、不动产等资产，具体范围由基金合同约定。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_concentration_limit(self, query: str, rule: Dict[str, Any]) -> str:
         """处理集中度限制查询"""
         if "多少" in query or "比例" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n私募基金对单个企业的投资不得超过基金资产总值的20%。"
+            return f"{rule['question']}\n\n私募基金对单个企业的投资不得超过基金资产总值的20%。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_fee_structure(self, query: str, rule: Dict[str, Any]) -> str:
         """处理费用结构查询"""
         if "哪些" in query or "有什么" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n私募基金的主要费用包括管理费（1%-2%）、业绩报酬（20%）、保管费（0.1%-0.25%）和其他费用。"
+            return f"{rule['question']}\n\n私募基金的主要费用包括管理费（1%-2%）、业绩报酬（20%）、保管费（0.1%-0.25%）和其他费用。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_management_fee(self, query: str, rule: Dict[str, Any]) -> str:
         """处理管理费查询"""
         if "怎么" in query or "如何" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n管理费按基金资产净值的年度百分比计提，通常为0.5%-3%，每月计提，按年支付。"
+            return f"{rule['question']}\n\n管理费按基金资产净值的年度百分比计提，通常为0.5%-3%，每月计提，按年支付。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_performance_fee(self, query: str, rule: Dict[str, Any]) -> str:
         """处理业绩报酬查询"""
         if "条件" in query or "怎么" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n业绩报酬仅在基金产生正收益时计提，通常按超额收益的20%-30%计提，有些基金采用高水位线机制。"
+            return f"{rule['question']}\n\n业绩报酬仅在基金产生正收益时计提，通常按超额收益的20%-30%计提，有些基金采用高水位线机制。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_exit_mechanism(self, query: str, rule: Dict[str, Any]) -> str:
         """处理退出机制查询"""
         if "怎么" in query or "如何" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n投资者可以通过基金清算、二级市场转让、管理人回购、权益转让或正常赎回等方式退出私募基金。"
+            return f"{rule['question']}\n\n投资者可以通过基金清算、二级市场转让、管理人回购、权益转让或正常赎回等方式退出私募基金。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_liquidation_distribution(self, query: str, rule: Dict[str, Any]) -> str:
         """处理清算分配查询"""
         if "顺序" in query or "如何" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n清算时资产分配顺序为：清算费用→基金债务→管理费（如合同要求）→向投资者返还净资产。"
+            return f"{rule['question']}\n\n清算时资产分配顺序为：清算费用→基金债务→管理费（如合同要求）→向投资者返还净资产。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_forced_liquidation(self, query: str, rule: Dict[str, Any]) -> str:
         """处理强制清算查询"""
         if "什么" in query or "哪些" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n基金合同终止事由、资产净值低于最低规模、管理人被撤销牌照、严重违规或重大损失等情况可能导致强制清算。"
+            return f"{rule['question']}\n\n基金合同终止事由、资产净值低于最低规模、管理人被撤销牌照、严重违规或重大损失等情况可能导致强制清算。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_main_risks(self, query: str, rule: Dict[str, Any]) -> str:
         """处理主要风险查询"""
         if "哪些" in query or "有什么" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n私募基金的主要风险包括市场风险、流动性风险、信用风险、管理风险、政策风险和集中度风险。"
+            return f"{rule['question']}\n\n私募基金的主要风险包括市场风险、流动性风险、信用风险、管理风险、政策风险和集中度风险。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_risk_management(self, query: str, rule: Dict[str, Any]) -> str:
         """处理风险管理查询"""
         if "怎么" in query or "如何" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n管理人应建立风险管理制度、设置风险部门、进行风险评估、建立预警机制、监测投资组合和计提风险准备金等。"
+            return f"{rule['question']}\n\n管理人应建立风险管理制度、设置风险部门、进行风险评估、建立预警机制、监测投资组合和计提风险准备金等。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_compliance(self, query: str, rule: Dict[str, Any]) -> str:
         """处理合规要求查询"""
         if "什么" in query or "哪些" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n管理人需要建立合规部门、制定管理制度、防范利益冲突、确保风险评估适当、防范洗钱和保护信息安全等。"
+            return f"{rule['question']}\n\n管理人需要建立合规部门、制定管理制度、防范利益冲突、确保风险评估适当、防范洗钱和保护信息安全等。"
         else:
             return self._generate_standard_response(query, rule)
 
     def _handle_prohibited_actions(self, query: str, rule: Dict[str, Any]) -> str:
         """处理禁止行为查询"""
         if "什么" in query or "哪些" in query:
-            return f"【{rule['category']}】{rule['question']}\n\n禁止行为包括向不合格投资者募集、挪用基金资产、承诺保本保收益、虚假宣传、内幕交易、操纵市场和违法关联交易等。"
+            return f"{rule['question']}\n\n禁止行为包括向不合格投资者募集、挪用基金资产、承诺保本保收益、虚假宣传、内幕交易、操纵市场和违法关联交易等。"
         else:
             return self._generate_standard_response(query, rule)
-
-    def _generate_llm_enhanced_response(self, query: str) -> str:
-        """使用LLM生成增强回答"""
-        # 查找最相关的规则作为上下文
-        best_rule = None
-        best_similarity = 0
-
-        for rule in self.rules_db:
-            similarity = SequenceMatcher(None, query.lower(), rule['question'].lower()).ratio()
-            if similarity > best_similarity:
-                best_similarity = similarity
-                best_rule = rule
-
-        if best_rule:
-            return f"【{best_rule['category']}】{best_rule['question']}\n\n{best_rule['answer']}"
-        else:
-            return "抱歉，我无法找到相关信息。"
 
 if __name__ == "__main__":
     assistant = FundQAAssistant()

@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:8002'
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8002'
 
 export interface FundQAResponse {
   query: string
@@ -38,20 +38,29 @@ export async function askFundQA(query: string): Promise<FundQAResponse> {
   return post<FundQAResponse>('/api/fund-qa', { query })
 }
 
-export async function askResearch(topic: string): Promise<ResearchResponse> {
+export async function askResearch(
+  topic: string,
+  industry: string = '综合',
+  horizon: string = '中期'
+): Promise<ResearchResponse> {
   return post<ResearchResponse>('/api/research', {
     topic,
-    industry: '综合',
-    horizon: '中期',
+    industry,
+    horizon,
   })
 }
 
 export async function askWealthAdvisor(
   query: string,
-  customerId: string
+  customerId: string,
+  threadId?: string
 ): Promise<WealthAdvisorResponse> {
-  return post<WealthAdvisorResponse>('/api/wealth-advisor', {
+  const body: Record<string, string> = {
     query,
     customer_id: customerId,
-  })
+  }
+  if (threadId) {
+    body.thread_id = threadId
+  }
+  return post<WealthAdvisorResponse>('/api/wealth-advisor', body)
 }

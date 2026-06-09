@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
+import { useRef, useEffect, type KeyboardEvent } from 'react'
 import { Send, Loader2 } from 'lucide-react'
 
 interface Props {

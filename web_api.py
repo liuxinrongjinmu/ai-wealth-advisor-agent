@@ -32,10 +32,15 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# 允许跨域请求
+# 允许跨域请求（开发环境允许本地前端访问，生产环境应限制为实际域名）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",   # Vite 默认开发端口
+        "http://localhost:3000",   # 备用开发端口
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -76,6 +81,7 @@ class WealthAdvisorRequest(BaseModel):
     """财富顾问请求"""
     query: str = Field(..., description="用户查询问题", min_length=1, max_length=500)
     customer_id: str = Field(default="customer1", description="客户ID：customer1(平衡型)/customer2(进取型)")
+    thread_id: Optional[str] = Field(default=None, description="对话线程ID，传入此参数启用多轮对话记忆")
 
 
 class WealthAdvisorResponse(BaseModel):
@@ -214,7 +220,7 @@ async def wealth_advisor(request: WealthAdvisorRequest):
     try:
         from hybrid_wealth_advisor_langgraph import run_wealth_advisor
         # 异步执行同步的顾问处理，避免阻塞事件循环
-        result = await asyncio.to_thread(run_wealth_advisor, request.query, request.customer_id)
+        result = await asyncio.to_thread(run_wealth_advisor, request.query, request.customer_id, request.thread_id)
 
         if result.get("error"):
             return WealthAdvisorResponse(

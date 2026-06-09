@@ -146,8 +146,8 @@ python web_api.py
 ```
 
 启动后访问：
-- API文档：http://localhost:8000/docs
-- 健康检查：http://localhost:8000/
+- API文档：http://localhost:8002/docs
+- 健康检查：http://localhost:8002/
 
 **方式三：单独运行子系统**
 
@@ -187,7 +187,7 @@ python "03-投顾AI助手（混合式）/test_wealth_advisor.py"
 **私募基金问答**
 
 ```bash
-curl -X POST http://localhost:8000/api/fund-qa \
+curl -X POST http://localhost:8002/api/fund-qa \
   -H "Content-Type: application/json" \
   -d '{"query": "私募基金的合格投资者标准是什么？"}'
 ```
@@ -195,7 +195,7 @@ curl -X POST http://localhost:8000/api/fund-qa \
 **投研分析**
 
 ```bash
-curl -X POST http://localhost:8000/api/research \
+curl -X POST http://localhost:8002/api/research \
   -H "Content-Type: application/json" \
   -d '{"topic": "新能源汽车行业投资机会", "industry": "电动汽车制造", "horizon": "长期"}'
 ```
@@ -203,7 +203,7 @@ curl -X POST http://localhost:8000/api/research \
 **财富顾问**
 
 ```bash
-curl -X POST http://localhost:8000/api/wealth-advisor \
+curl -X POST http://localhost:8002/api/wealth-advisor \
   -H "Content-Type: application/json" \
   -d '{"query": "今天上证指数怎么样？", "customer_id": "customer1"}'
 ```

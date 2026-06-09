@@ -5,8 +5,9 @@
 私募基金问答助手测试脚本
 """
 
+import os
 import sys
-sys.path.insert(0, r'C:\Users\10300\Desktop\my-project\智能投顾AI助手系统\01-私募基金运作指引问答助手（反应式）')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fund_qa_langgraph_v2 import FundQAAssistant
 

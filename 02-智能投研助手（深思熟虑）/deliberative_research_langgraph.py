@@ -36,8 +36,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 设置API密钥 - 从环境变量读取
-DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY', 'sk-882e296067b744289acf27e6e20f3ec0')
+# 设置API密钥 - 从环境变量读取，未设置时给出提示
+DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY', '')
+if not DASHSCOPE_API_KEY:
+    raise ValueError("未检测到DASHSCOPE_API_KEY环境变量，请先设置：set DASHSCOPE_API_KEY=your-api-key")
 
 # 创建LLM实例
 llm = Tongyi(model_name="Qwen-Turbo-2025-04-28", dashscope_api_key=DASHSCOPE_API_KEY)

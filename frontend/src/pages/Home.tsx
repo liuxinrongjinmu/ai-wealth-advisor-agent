@@ -14,6 +14,7 @@ export default function Home() {
   const setLoading = useChatStore((s) => s.setLoading)
   const addMessage = useChatStore((s) => s.addMessage)
   const customerId = useChatStore((s) => s.customerId)
+  const threadId = useChatStore((s) => s.threadId)
 
   const [inputValue, setInputValue] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -48,7 +49,7 @@ export default function Home() {
           response = res.report || '未生成报告'
         }
       } else if (activeTab === 'wealth-advisor') {
-        const res = await askWealthAdvisor(query, customerId)
+        const res = await askWealthAdvisor(query, customerId, threadId)
         if (res.error) {
           response = `处理出错: ${res.error}`
         } else {
