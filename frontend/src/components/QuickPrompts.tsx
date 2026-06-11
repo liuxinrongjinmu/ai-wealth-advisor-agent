@@ -1,51 +1,46 @@
-import { useChatStore, type TabKey } from '../store/chatStore'
-import { Zap } from 'lucide-react'
+import { useChatStore, type TabType } from '../store'
 
-interface PromptOption {
-  label: string
-  query: string
-}
-
-const prompts: Record<TabKey, PromptOption[]> = {
+const prompts: Record<TabType, string[]> = {
   'fund-qa': [
-    { label: '合格投资者标准', query: '私募基金的合格投资者标准是什么？' },
-    { label: '投资范围', query: '私募基金可以投资哪些资产？' },
-    { label: '费用结构', query: '私募基金有哪些费用？' },
-    { label: '禁止行为', query: '私募基金有什么禁止的行为？' },
+    '合格投资者标准是什么？',
+    '私募基金有哪些费用？',
+    '风险等级如何划分？',
+    '禁止行为有哪些？',
   ],
   research: [
-    { label: '新能源投资机会', query: '新能源汽车行业投资机会分析' },
-    { label: 'AI产业趋势', query: '人工智能产业未来发展趋势' },
-    { label: '半导体行业', query: '半导体行业投资价值评估' },
+    '新能源汽车行业投资机会',
+    '人工智能行业分析',
+    '消费行业投资前景',
   ],
   'wealth-advisor': [
-    { label: '投资组合优化', query: '如何优化我的投资组合？' },
-    { label: '风险管理', query: '当前市场环境下如何控制风险？' },
-    { label: '今日行情', query: '今天上证指数表现如何？' },
-    { label: '退休规划', query: '如何为退休做长期投资规划？' },
+    '今天上证指数怎么样？',
+    '如何调整投资组合？',
+    '什么是ETF？',
+    '退休规划建议',
   ],
 }
 
 interface Props {
-  onSelect: (query: string) => void
+  onSelect: (prompt: string) => void
 }
 
 export default function QuickPrompts({ onSelect }: Props) {
   const activeTab = useChatStore((s) => s.activeTab)
-  const currentPrompts = prompts[activeTab]
+  const items = prompts[activeTab]
 
   return (
-    <div className="flex flex-wrap gap-2 px-1">
-      <Zap size={14} className="mt-0.5 shrink-0 text-amber-400" />
-      {currentPrompts.map((p) => (
+    <div className="flex flex-wrap gap-2">
+      {items.map((prompt, idx) => (
         <button
-          key={p.label}
-          onClick={() => onSelect(p.query)}
-          className="rounded-full border border-slate-600 bg-slate-800/50 px-3 py-1 text-xs text-slate-300
-                     transition-all duration-200 hover:border-amber-500/50 hover:bg-amber-500/10 hover:text-amber-300
-                     active:scale-95"
+          key={prompt}
+          onClick={() => onSelect(prompt)}
+          className="glass group flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-text-secondary transition-all duration-200 hover:text-accent hover:shadow-md hover:shadow-accent/8"
         >
-          {p.label}
+          <span className="text-accent/40 group-hover:text-accent transition-colors font-mono">
+            {String(idx + 1).padStart(2, '0')}
+          </span>
+          <span className="tech-line-vertical h-3" />
+          {prompt}
         </button>
       ))}
     </div>

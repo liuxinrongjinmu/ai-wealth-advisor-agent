@@ -40,6 +40,13 @@ desktop.ini
 
 # Logs
 *.log
+logs/
+
+# Data storage
+data/
 
 # Generated reports
 research_report_*.txt
+
+# Docker
+docker-compose.override.yml

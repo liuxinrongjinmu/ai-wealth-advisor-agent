@@ -1,58 +1,47 @@
-import { useChatStore, type TabKey } from '../store/chatStore'
-import { Sparkles, Scale3D, LineChart } from 'lucide-react'
+import { Cpu } from 'lucide-react'
+import { useChatStore, type TabType } from '../store'
 
-interface Tab {
-  key: TabKey
-  label: string
-  icon: React.ReactNode
-}
-
-const tabs: Tab[] = [
-  { key: 'fund-qa', label: '基金问答', icon: <Scale3D size={16} /> },
-  { key: 'research', label: '投研分析', icon: <LineChart size={16} /> },
-  { key: 'wealth-advisor', label: '财富顾问', icon: <Sparkles size={16} /> },
+const tabs: { key: TabType; label: string; icon: string }[] = [
+  { key: 'fund-qa', label: '基金问答', icon: '📋' },
+  { key: 'research', label: '投研分析', icon: '🔬' },
+  { key: 'wealth-advisor', label: '财富顾问', icon: '💎' },
 ]
 
 export default function Header() {
-  const activeTab = useChatStore((s) => s.activeTab)
-  const setActiveTab = useChatStore((s) => s.setActiveTab)
+  const { activeTab, setActiveTab } = useChatStore()
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-700/50 bg-slate-900/80 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-amber-600">
-            <Sparkles size={16} className="text-slate-900" />
+    <header className="glass-heavy sticky top-0 z-50 border-b border-white/30">
+      <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-5">
+        {/* Logo区域 */}
+        <div className="flex items-center gap-3">
+          <div className="glass-light flex h-9 w-9 items-center justify-center rounded-lg">
+            <Cpu className="h-5 w-5 text-accent" />
           </div>
-          <h1 className="text-base font-semibold text-slate-100">
-            智能投顾AI助手
-          </h1>
+          <div>
+            <h1 className="text-base font-bold tracking-wide text-text-primary">
+              智能投顾<span className="text-accent">AI</span>助手
+            </h1>
+            <div className="tech-line mt-0.5 w-full" />
+          </div>
         </div>
 
-        <nav className="flex rounded-xl bg-slate-800 p-0.5" role="tablist">
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab.key
-            return (
-              <button
-                key={tab.key}
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => setActiveTab(tab.key)}
-                className={`
-                  flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-xs font-medium
-                  transition-all duration-200
-                  ${
-                    isActive
-                      ? 'bg-amber-500/20 text-amber-300 shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }
-                `}
-              >
-                {tab.icon}
-                <span className="hidden sm:inline">{tab.label}</span>
-              </button>
-            )
-          })}
+        {/* 导航标签 */}
+        <nav className="glass-light flex gap-1 rounded-xl p-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium transition-all duration-200 ${
+                activeTab === tab.key
+                  ? 'bg-white/80 text-accent shadow-sm ring-1 ring-accent/15 backdrop-blur-sm'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-white/40'
+              }`}
+            >
+              <span className="text-xs">{tab.icon}</span>
+              {tab.label}
+            </button>
+          ))}
         </nav>
       </div>
     </header>

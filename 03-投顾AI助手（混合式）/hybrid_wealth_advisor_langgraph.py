@@ -14,9 +14,11 @@
 """
 
 import os
+import sys
 import json
 import re
 import logging
+import time
 import urllib.request
 from datetime import datetime
 from typing import Dict, List, Any, Literal, TypedDict, Optional, Union, Tuple, cast
@@ -36,20 +38,16 @@ from langgraph.graph import StateGraph, END
 import warnings
 warnings.filterwarnings("ignore")
 
+# 添加项目根目录到搜索路径以导入共享模块
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from llm_factory import get_llm, is_llm_available
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# 设置API密钥 - 从环境变量读取，未设置时给出提示
-DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY', '')
-if not DASHSCOPE_API_KEY:
-    raise ValueError("未检测到DASHSCOPE_API_KEY环境变量，请先设置：set DASHSCOPE_API_KEY=your-api-key")
-
-# 创建LLM实例
-llm = Tongyi(model_name="Qwen-Turbo-2025-04-28", dashscope_api_key=DASHSCOPE_API_KEY)
 
 # 定义客户信息数据结构
 class CustomerProfile(BaseModel):
@@ -212,44 +210,119 @@ RECOMMENDATION_PROMPT = """你是一个财富管理投顾AI助手。请根据深
 返回格式应为自然语言文本，适合直接呈现给客户。
 """
 
+class _CircuitBreaker:
+    """
+    简易熔断器：连续失败超过阈值后熔断，一段时间后半开尝试
+    """
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60):
+        """
+        初始化熔断器
+        :param failure_threshold: 连续失败触发熔断的阈值
+        :param recovery_timeout: 熔断恢复超时（秒）
+        """
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self._failure_count = 0
+        self._last_failure_time = 0.0
+        self._is_open = False
+
+    def is_available(self) -> bool:
+        """
+        检查熔断器是否可用（未熔断或已过恢复期）
+        :return: True表示可调用
+        """
+        if not self._is_open:
+            return True
+        if time.time() - self._last_failure_time >= self.recovery_timeout:
+            self._is_open = False
+            logger.info("熔断器进入半开状态，尝试恢复")
+            return True
+        return False
+
+    def record_success(self):
+        """记录成功调用"""
+        self._failure_count = 0
+        self._is_open = False
+
+    def record_failure(self):
+        """记录失败调用"""
+        self._failure_count += 1
+        self._last_failure_time = time.time()
+        if self._failure_count >= self.failure_threshold:
+            self._is_open = True
+            logger.warning("熔断器已打开，连续失败%d次，将在%d秒后重试", self._failure_count, self.recovery_timeout)
+
+
+_market_circuit_breaker = _CircuitBreaker(failure_threshold=5, recovery_timeout=60)
+
+
 def _fetch_realtime_index(symbol: str, name: str) -> Optional[Dict[str, str]]:
     """
-    通过新浪财经API获取实时指数行情
+    通过新浪财经API获取实时指数行情（含熔断器和重试机制）
     :param symbol: 新浪行情代码（如 sh000001）
     :param name: 指数名称
     :return: 行情数据字典，失败返回None
     """
-    url = f"http://hq.sinajs.cn/list={symbol}"
-    try:
-        req = urllib.request.Request(url, headers={
-            "Referer": "http://finance.sina.com.cn",
-            "User-Agent": "Mozilla/5.0"
-        })
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            content = resp.read().decode("gbk")
-        # 解析新浪行情数据格式：var hq_str_sh000001="..."
-        match = re.search(r'="([^"]*)"', content)
-        if not match:
-            return None
-        fields = match.group(1).split(",")
-        if len(fields) < 4:
-            return None
-        # fields[1]=开盘价, fields[2]=昨收, fields[3]=当前价
-        current_price = fields[3]
-        prev_close = fields[2]
-        if not current_price or not prev_close:
-            return None
-        change = round(float(current_price) - float(prev_close), 2)
-        pct = round(change / float(prev_close) * 100, 2)
-        return {
-            "name": name,
-            "price": current_price,
-            "change": str(change),
-            "pct": str(pct)
-        }
-    except Exception as e:
-        logger.warning(f"获取实时行情失败({symbol}): {str(e)}")
+    # 熔断器检查：如果已熔断则直接跳过API调用
+    if not _market_circuit_breaker.is_available():
+        logger.warning("熔断器已打开，跳过新浪财经API调用(%s)，请稍后重试", symbol)
         return None
+
+    url = f"http://hq.sinajs.cn/list={symbol}"
+    max_retries = 3
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            req = urllib.request.Request(url, headers={
+                "Referer": "http://finance.sina.com.cn",
+                "User-Agent": "Mozilla/5.0"
+            })
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                content = resp.read().decode("gbk")
+            # 解析新浪行情数据格式：var hq_str_sh000001="..."
+            match = re.search(r'="([^"]*)"', content)
+            if not match:
+                last_error = f"解析行情数据失败({symbol}): 未匹配到数据格式"
+                logger.warning(last_error)
+                _market_circuit_breaker.record_failure()
+                continue
+            fields = match.group(1).split(",")
+            if len(fields) < 4:
+                last_error = f"行情数据字段不足({symbol}): 期望>=4个字段，实际%d个", len(fields)
+                logger.warning(last_error)
+                _market_circuit_breaker.record_failure()
+                continue
+            # fields[1]=开盘价, fields[2]=昨收, fields[3]=当前价
+            current_price = fields[3]
+            prev_close = fields[2]
+            if not current_price or not prev_close:
+                last_error = f"行情数据价格为空({symbol})"
+                logger.warning(last_error)
+                _market_circuit_breaker.record_failure()
+                continue
+            change = round(float(current_price) - float(prev_close), 2)
+            pct = round(change / float(prev_close) * 100, 2)
+            # 成功：记录成功并返回
+            _market_circuit_breaker.record_success()
+            return {
+                "name": name,
+                "price": current_price,
+                "change": str(change),
+                "pct": str(pct)
+            }
+        except Exception as e:
+            last_error = e
+            _market_circuit_breaker.record_failure()
+            if attempt < max_retries - 1:
+                backoff = 2 ** attempt  # 指数退避：1s, 2s, 4s
+                logger.warning("获取实时行情失败(%s)，第%d/%d次重试，%d秒后重试: %s",
+                               symbol, attempt + 1, max_retries, backoff, str(e))
+                time.sleep(backoff)
+            else:
+                logger.error("获取实时行情最终失败(%s)，已重试%d次: %s", symbol, max_retries, str(e))
+
+    return None
 
 
 def query_shanghai_index(_: str = "") -> str:
@@ -301,7 +374,7 @@ def query_csi300_index(_: str = "") -> str:
 # 第一阶段：情境评估 - 确定查询类型和处理模式
 def assess_query(state: WealthAdvisorState) -> WealthAdvisorState:
     """评估用户查询，确定类型和处理模式"""
-    print("[DEBUG] 进入节点: assess_query")
+    logger.debug("进入节点: assess_query")
     logger.info("1. 评估阶段：确定查询类型和处理模式")
 
     try:
@@ -314,11 +387,9 @@ def assess_query(state: WealthAdvisorState) -> WealthAdvisorState:
         }
 
         # 调用LLM
-        chain = prompt | llm | JsonOutputParser()
+        chain = prompt | get_llm() | JsonOutputParser()
         result = chain.invoke(input_data)
-        print("[DEBUG] LLM评估输出:", result)
         logger.debug(f"LLM评估输出: {result}")
-        print(f"[DEBUG] 分支判断: processing_mode={result.get('processing_mode', '未知')}, query_type={result.get('query_type', '未知')}")
         logger.info(f"分支判断: processing_mode={result.get('processing_mode', '未知')}, query_type={result.get('query_type', '未知')}")
 
         # 获取处理模式，确保有值
@@ -348,7 +419,7 @@ def assess_query(state: WealthAdvisorState) -> WealthAdvisorState:
 
 # 反应式处理 - 快速响应简单查询
 def reactive_processing(state: WealthAdvisorState) -> WealthAdvisorState:
-    print("[DEBUG] 进入节点: reactive_processing")
+    logger.debug("进入节点: reactive_processing")
     """反应式处理模式，提供快速响应，支持工具调用"""
     try:
         # 定义工具列表
@@ -381,7 +452,7 @@ def reactive_processing(state: WealthAdvisorState) -> WealthAdvisorState:
                     logger.info(f"调用工具: {tool_name}")
                     result = tool_info["func"]("")
                     tool_responses.append(result)
-                    print(f"[DEBUG] 工具调用结果: {result}")
+                    logger.debug(f"工具调用结果: {result}")
                     break
 
         # 如果查询包含"指数"但未匹配到具体指数，默认查询上证指数
@@ -417,7 +488,7 @@ def reactive_processing(state: WealthAdvisorState) -> WealthAdvisorState:
         }
 
         prompt = ChatPromptTemplate.from_template(prompt_template)
-        chain = prompt | llm | JsonOutputParser()
+        chain = prompt | get_llm() | JsonOutputParser()
         result = chain.invoke(input_data)
 
         return {
@@ -436,7 +507,7 @@ def reactive_processing(state: WealthAdvisorState) -> WealthAdvisorState:
 # 数据收集 - 收集进行深度分析所需的数据
 def collect_data(state: WealthAdvisorState) -> WealthAdvisorState:
     """收集市场数据和客户信息进行深入分析"""
-    print("[DEBUG] 进入节点: collect_data")
+    logger.debug("进入节点: collect_data")
     logger.info("2. 数据收集阶段：收集市场数据和客户信息")
 
     try:
@@ -453,14 +524,13 @@ def collect_data(state: WealthAdvisorState) -> WealthAdvisorState:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                chain = prompt | llm | JsonOutputParser()
+                chain = prompt | get_llm() | JsonOutputParser()
                 result = chain.invoke(input_data)
                 break
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
                 logger.warning(f"数据收集阶段第{attempt + 1}次尝试失败，正在重试...")
-                print(f"  数据收集阶段第{attempt + 1}次尝试失败，正在重试...")
         else:
             raise Exception("数据收集阶段LLM调用失败")
 
@@ -482,7 +552,7 @@ def collect_data(state: WealthAdvisorState) -> WealthAdvisorState:
 # 深度分析 - 分析数据和客户情况
 def analyze_data(state: WealthAdvisorState) -> WealthAdvisorState:
     """进行深度投资分析"""
-    print("[DEBUG] 进入节点: analyze_data")
+    logger.debug("进入节点: analyze_data")
     logger.info("3. 深度分析阶段：分析数据和客户情况")
 
     try:
@@ -509,14 +579,13 @@ def analyze_data(state: WealthAdvisorState) -> WealthAdvisorState:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                chain = prompt | llm | JsonOutputParser()
+                chain = prompt | get_llm() | JsonOutputParser()
                 result = chain.invoke(input_data)
                 break
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
                 logger.warning(f"分析阶段第{attempt + 1}次尝试失败，正在重试...")
-                print(f"  分析阶段第{attempt + 1}次尝试失败，正在重试...")
         else:
             raise Exception("分析阶段LLM调用失败")
 
@@ -538,7 +607,7 @@ def analyze_data(state: WealthAdvisorState) -> WealthAdvisorState:
 # 生成建议 - 根据分析结果提供投资建议
 def generate_recommendations(state: WealthAdvisorState) -> WealthAdvisorState:
     """生成投资建议和行动计划"""
-    print("[DEBUG] 进入节点: generate_recommendations")
+    logger.debug("进入节点: generate_recommendations")
     logger.info("4. 建议生成阶段：提供投资建议和行动计划")
 
     try:
@@ -565,14 +634,13 @@ def generate_recommendations(state: WealthAdvisorState) -> WealthAdvisorState:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                chain = prompt | llm | StrOutputParser()
+                chain = prompt | get_llm() | StrOutputParser()
                 result = chain.invoke(input_data)
                 break
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
                 logger.warning(f"建议生成阶段第{attempt + 1}次尝试失败，正在重试...")
-                print(f"  建议生成阶段第{attempt + 1}次尝试失败，正在重试...")
         else:
             raise Exception("建议生成阶段LLM调用失败")
 
@@ -732,15 +800,15 @@ def run_wealth_advisor(user_query: str, customer_id: str = "customer1",
     config = {"configurable": {"thread_id": thread_id}} if thread_id else None
 
     try:
-        print("LangGraph Mermaid流程图：")
-        print(agent.get_graph().draw_mermaid())
+        logger.info("LangGraph Mermaid流程图：")
+        logger.info(agent.get_graph().draw_mermaid())
 
         # 运行智能体
         result = agent.invoke(initial_state, config=config) if config else agent.invoke(initial_state)
         return result
     except Exception as e:
         error_msg = str(e)
-        print(f"捕获异常: {error_msg}")
+        logger.error(f"捕获异常: {error_msg}")
         # 返回带有错误信息的状态
         return {
             **initial_state,

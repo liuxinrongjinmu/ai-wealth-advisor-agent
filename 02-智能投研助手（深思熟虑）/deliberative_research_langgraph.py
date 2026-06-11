@@ -16,18 +16,20 @@
 """
 
 import os
+import sys
 import json
 import logging
 from typing import Dict, List, Any, Literal, TypedDict, Optional, Union, Tuple
 from datetime import datetime
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_community.llms import Tongyi
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
-# PydanticOutputParser 未在本代码中使用，注释掉导入
-# from langchain.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
+
+# 添加项目根目录到搜索路径以导入共享模块
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from llm_factory import get_llm, is_llm_available
 
 # 配置日志
 logging.basicConfig(
@@ -35,14 +37,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# 设置API密钥 - 从环境变量读取，未设置时给出提示
-DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY', '')
-if not DASHSCOPE_API_KEY:
-    raise ValueError("未检测到DASHSCOPE_API_KEY环境变量，请先设置：set DASHSCOPE_API_KEY=your-api-key")
-
-# 创建LLM实例
-llm = Tongyi(model_name="Qwen-Turbo-2025-04-28", dashscope_api_key=DASHSCOPE_API_KEY)
 
 # 定义输出模型
 class PerceptionOutput(BaseModel):
@@ -233,7 +227,6 @@ def perception(state: ResearchAgentState) -> ResearchAgentState:
     """感知阶段：收集和整理市场数据和信息"""
 
     logger.info("1. 感知阶段：收集市场数据和信息...")
-    print("1. 感知阶段：收集市场数据和信息...")
 
     try:
         # 准备提示
@@ -250,14 +243,13 @@ def perception(state: ResearchAgentState) -> ResearchAgentState:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                chain = prompt | llm | JsonOutputParser()
+                chain = prompt | get_llm() | JsonOutputParser()
                 result = chain.invoke(input_data)
                 break
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
                 logger.warning(f"感知阶段第{attempt + 1}次尝试失败，正在重试...")
-                print(f"  感知阶段第{attempt + 1}次尝试失败，正在重试...")
         else:
             raise Exception("感知阶段LLM调用失败")
         
@@ -281,7 +273,6 @@ def modeling(state: ResearchAgentState) -> ResearchAgentState:
     """建模阶段：构建内部世界模型，理解市场状态"""
 
     logger.info("2. 建模阶段：构建内部世界模型...")
-    print("2. 建模阶段：构建内部世界模型...")
 
     try:
         # 确保感知数据已存在
@@ -308,14 +299,13 @@ def modeling(state: ResearchAgentState) -> ResearchAgentState:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                chain = prompt | llm | JsonOutputParser()
+                chain = prompt | get_llm() | JsonOutputParser()
                 result = chain.invoke(input_data)
                 break
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
                 logger.warning(f"建模阶段第{attempt + 1}次尝试失败，正在重试...")
-                print(f"  建模阶段第{attempt + 1}次尝试失败，正在重试...")
         else:
             raise Exception("建模阶段LLM调用失败")
 
@@ -339,7 +329,6 @@ def reasoning(state: ResearchAgentState) -> ResearchAgentState:
     """推理阶段：生成多个候选分析方案并模拟结果"""
 
     logger.info("3. 推理阶段：生成候选分析方案...")
-    print("3. 推理阶段：生成候选分析方案...")
 
     try:
         # 确保世界模型已存在
@@ -366,14 +355,13 @@ def reasoning(state: ResearchAgentState) -> ResearchAgentState:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                chain = prompt | llm | JsonOutputParser()
+                chain = prompt | get_llm() | JsonOutputParser()
                 result = chain.invoke(input_data)
                 break
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
                 logger.warning(f"推理阶段第{attempt + 1}次尝试失败，正在重试...")
-                print(f"  推理阶段第{attempt + 1}次尝试失败，正在重试...")
         else:
             raise Exception("推理阶段LLM调用失败")
 
@@ -397,7 +385,6 @@ def decision(state: ResearchAgentState) -> ResearchAgentState:
     """决策阶段：评估候选方案并选择最优投资观点"""
 
     logger.info("4. 决策阶段：选择最优投资观点...")
-    print("4. 决策阶段：选择最优投资观点...")
 
     try:
         # 确保候选方案已存在
@@ -425,14 +412,13 @@ def decision(state: ResearchAgentState) -> ResearchAgentState:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                chain = prompt | llm | JsonOutputParser()
+                chain = prompt | get_llm() | JsonOutputParser()
                 result = chain.invoke(input_data)
                 break
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
                 logger.warning(f"决策阶段第{attempt + 1}次尝试失败，正在重试...")
-                print(f"  决策阶段第{attempt + 1}次尝试失败，正在重试...")
         else:
             raise Exception("决策阶段LLM调用失败")
 
@@ -456,7 +442,6 @@ def report_generation(state: ResearchAgentState) -> ResearchAgentState:
     """报告阶段：生成完整的投资研究报告"""
 
     logger.info("5. 报告阶段：生成完整研究报告...")
-    print("5. 报告阶段：生成完整研究报告...")
 
     try:
         # 确保选定方案已存在
@@ -485,14 +470,13 @@ def report_generation(state: ResearchAgentState) -> ResearchAgentState:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                chain = prompt | llm | StrOutputParser()
+                chain = prompt | get_llm() | StrOutputParser()
                 result = chain.invoke(input_data)
                 break
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
                 logger.warning(f"报告生成阶段第{attempt + 1}次尝试失败，正在重试...")
-                print(f"  报告生成阶段第{attempt + 1}次尝试失败，正在重试...")
         else:
             raise Exception("报告生成阶段LLM调用失败")
 
@@ -563,8 +547,8 @@ def run_research_agent(topic: str, industry: str, horizon: str) -> Dict[str, Any
         "current_phase": "perception",
         "error": None
     }
-    print("LangGraph Mermaid流程图：")
-    print(agent.get_graph().draw_mermaid())
+    logger.info("LangGraph Mermaid流程图：")
+    logger.info(agent.get_graph().draw_mermaid())
 
     # 运行智能体
     result = agent.invoke(initial_state)

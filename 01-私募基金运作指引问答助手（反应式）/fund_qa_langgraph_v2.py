@@ -16,21 +16,21 @@
 import re
 import json
 import os
+import sys
+import logging
 from typing import Dict, List, Any, Tuple, Optional
 from functools import lru_cache
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_community.llms import Tongyi
 from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel, Field
 from difflib import SequenceMatcher
 
-# 设置API密钥 - 从环境变量读取，未设置时给出提示
-DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY', '')
-if not DASHSCOPE_API_KEY:
-    raise ValueError("未检测到DASHSCOPE_API_KEY环境变量，请先设置：set DASHSCOPE_API_KEY=your-api-key")
+# 添加项目根目录到搜索路径以导入共享模块
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from llm_factory import get_llm, is_llm_available
 
-# 创建LLM实例
-llm = Tongyi(model_name="Qwen-Turbo-2025-04-28", dashscope_api_key=DASHSCOPE_API_KEY)
+# 配置日志
+logger = logging.getLogger(__name__)
 
 
 class FundQAAssistant:
@@ -41,7 +41,7 @@ class FundQAAssistant:
         初始化助手
         :param cache_size: 查询缓存最大条目数，0表示不缓存
         """
-        self.llm = llm
+        self.llm = None  # 延迟初始化，首次调用时获取
         self.rules_db = self._initialize_rules_db()
         self.keyword_weights = self._initialize_keyword_weights()
         self.special_handlers = self._initialize_special_handlers()
@@ -459,6 +459,11 @@ class FundQAAssistant:
         :param query: 用户查询文本
         :return: LLM生成的增强回答（不含分类前缀，由外层统一添加）
         """
+        try:
+            llm = get_llm()
+        except ValueError as e:
+            return f"抱歉，系统未配置API密钥，无法提供智能回答。请配置DASHSCOPE_API_KEY环境变量。"
+
         # 复用已有的匹配方法查找最相关的规则
         keyword_scores = self._calculate_keyword_scores(query)
         semantic_scores = self._calculate_semantic_scores(query)
@@ -475,7 +480,7 @@ class FundQAAssistant:
                 "用户问题：{query}\n\n"
                 "请基于规则内容提供准确回答："
             )
-            chain = prompt | self.llm | StrOutputParser()
+            chain = prompt | llm | StrOutputParser()
             try:
                 llm_answer = chain.invoke({
                     "question": best_rule['question'],
@@ -484,6 +489,7 @@ class FundQAAssistant:
                 })
                 return f"{best_rule['question']}\n\n{llm_answer}"
             except Exception as e:
+                logger.error(f"LLM增强回答生成失败: {str(e)}")
                 return f"抱歉，处理您的问题时出现错误：{str(e)}"
 
         # 没有找到相关规则，使用通用回答
@@ -492,10 +498,11 @@ class FundQAAssistant:
             "用户问题：{query}\n\n"
             "请提供专业回答："
         )
-        chain = prompt | self.llm | StrOutputParser()
+        chain = prompt | llm | StrOutputParser()
         try:
             return chain.invoke({"query": query})
         except Exception as e:
+            logger.error(f"LLM通用回答生成失败: {str(e)}")
             return f"抱歉，处理您的问题时出现错误：{str(e)}"
 
     # ========== 特殊处理器实现 ==========
