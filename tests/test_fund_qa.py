@@ -63,7 +63,7 @@ class TestFundQAAssistant:
         """
         测试按ID获取规则
         """
-        rule = fund_qa_assistant._get_rule_by_id("rule_01")
+        rule = fund_qa_assistant._get_rule_by_id("rule001")
         assert rule is not None
         assert "question" in rule
         assert "answer" in rule

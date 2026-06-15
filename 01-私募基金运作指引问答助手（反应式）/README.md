@@ -33,8 +33,8 @@
 ```
 01-私募基金运作指引问答助手（反应式）/
 ├── fund_qa_langgraph_v2.py      # 主系统文件，问答核心逻辑
-├── test_qa_assistant.py         # 快速测试脚本（7个关键用例）
-├── test_comprehensive.py        # 综合测试脚本（67个真实用户问题）
+├── knowledge_base.py            # RAG知识库模块，语义检索增强
+├── tests/test_fund_qa.py        # 单元测试（14个用例，覆盖核心路径）
 └── __pycache__/                 # Python缓存文件夹
 ```
 
@@ -69,8 +69,7 @@
 
 ### 3. 交互与测试（怎么用、怎么验证）
 - **命令行交互**：直接运行主程序，输入自然语言问题实时获得答案。
-- **快速测试**：test_qa_assistant.py，7个关键用例，验证系统主流程。
-- **综合测试**：test_comprehensive.py，67个真实用户问题，覆盖所有规则和多种问法。
+- **单元测试**：`tests/test_fund_qa.py`，14个用例，验证系统核心流程。
 
 ### 4. 技术栈（用到哪些技术）
 - Python 3.8+
@@ -112,8 +111,7 @@
    ```
 3. 运行测试：
    ```bash
-   python test_qa_assistant.py         # 快速测试
-   python test_comprehensive.py        # 综合测试
+   python -m pytest tests/test_fund_qa.py  # 单元测试
    ```
 
 ---
@@ -186,7 +184,7 @@
 - 在 fund_qa_langgraph_v2.py 的 rules_db 里添加新规则。
 - 在 keyword_weights 字典里加新关键词或调整分数。
 - 在 process_query 方法里扩展特殊处理逻辑。
-- 在 test_comprehensive.py 里加新测试用例。
+- 在 `tests/test_fund_qa.py` 里加新测试用例。
 
 **Q4：遇到报错怎么办？**
 - 检查Python和依赖包是否安装正确。
@@ -218,8 +216,7 @@ print(result)
 
 ### 3. 批量测试
 ```bash
-python test_qa_assistant.py
-python test_comprehensive.py
+python -m pytest tests/test_fund_qa.py
 ```
 
 ---
@@ -242,7 +239,7 @@ python test_comprehensive.py
 
 ## 十五、进阶玩法
 
-- **批量测试**：用 test_comprehensive.py 检查系统在各种问法下的表现。
+- **批量测试**：用 `pytest` 检查系统在各种问法下的表现。
 - **自定义扩展**：根据实际业务需求，灵活增减规则、关键词和处理逻辑。
 - **集成到其他系统**：可作为API或模块集成到更大的金融AI平台。
 - **新员工培训**：让新手快速掌握私募基金核心规则。

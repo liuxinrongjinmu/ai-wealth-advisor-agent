@@ -16,7 +16,8 @@ import json
 import asyncio
 import logging
 import time
-from typing import Optional, List
+import threading
+from typing import Optional, List, Tuple
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Request, Security, Depends
@@ -232,51 +233,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-API-Key"],
+    max_age=3600,
 )
-
-
-# ========== 请求中间件（速率限制+超时+日志） ==========
-
-@app.middleware("http")
-async def request_middleware(request: Request, call_next):
-    """
-    请求中间件：速率限制 + 请求日志
-    """
-    client_ip = request.client.host if request.client else "unknown"
-    start_time = time.time()
-
-    # 速率限制检查（健康检查接口豁免）
-    if not request.url.path.endswith("/") and request.url.path != "/":
-        if not rate_limiter.is_allowed(client_ip):
-            logger.warning("速率限制触发: IP=%s, Path=%s", client_ip, request.url.path)
-            from fastapi.responses import JSONResponse
-            return JSONResponse(
-                status_code=429,
-                content={"detail": f"请求过于频繁，请稍后再试（限制：{settings.rate_limit_per_minute}次/分钟）"}
-            )
-
-    # 执行请求
-    try:
-        response = await call_next(request)
-    except asyncio.TimeoutError:
-        logger.error("请求超时: IP=%s, Path=%s", client_ip, request.url.path)
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=504, content={"detail": "请求处理超时"})
-    except Exception as e:
-        logger.error("请求处理异常: IP=%s, Path=%s, Error=%s", client_ip, request.url.path, str(e))
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=500, content={"detail": "服务器内部错误"})
-
-    # 请求日志
-    process_time = time.time() - start_time
-    logger.info(
-        "请求: %s %s IP=%s 耗时=%.2fs 状态=%d",
-        request.method, request.url.path, client_ip, process_time, response.status_code
-    )
-
-    return response
 
 
 # ========== 请求/响应模型 ==========
@@ -284,6 +244,7 @@ async def request_middleware(request: Request, call_next):
 class FundQARequest(BaseModel):
     """私募基金问答请求"""
     query: str = Field(..., description="用户查询问题", min_length=1, max_length=500)
+    thread_id: Optional[str] = Field(None, description="会话线程ID，用于多轮对话上下文记忆")
 
 
 class FundQAResponse(BaseModel):
@@ -298,6 +259,7 @@ class ResearchRequest(BaseModel):
     topic: str = Field(..., description="研究主题", min_length=1, max_length=200)
     industry: str = Field(default="综合", description="行业焦点")
     horizon: str = Field(default="中期", description="时间范围：短期/中期/长期")
+    thread_id: Optional[str] = Field(None, description="会话线程ID，用于多轮对话上下文记忆")
 
 
 class ResearchResponse(BaseModel):
@@ -390,6 +352,157 @@ def get_research_workflow():
 
 # ========== API路由（v1版本） ==========
 
+# 导入认证模块
+import auth as auth_module
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+jwt_scheme = HTTPBearer(auto_error=False)
+
+
+async def get_jwt_user(
+    credentials: HTTPAuthorizationCredentials = Security(jwt_scheme),
+    api_key: str = Depends(verify_api_key),
+) -> Optional[Tuple[str, int]]:
+    """
+    从JWT或API Key中获取当前用户
+    优先使用JWT认证，失败时回退到API Key（保持向后兼容）
+    :param credentials: JWT Bearer token
+    :param api_key: API Key（兼容旧版）
+    :return: (username, user_id) 或 None
+    """
+    if credentials:
+        user = auth_module.get_current_user(credentials.credentials)
+        if user:
+            return user
+    return None  # API Key认证不返回用户身份
+
+
+# ========== 认证端点 ==========
+
+class RegisterRequest(BaseModel):
+    """用户注册请求"""
+    username: str = Field(..., description="用户名", min_length=3, max_length=30)
+    password: str = Field(..., description="密码", min_length=6, max_length=50)
+    display_name: str = Field(default="", description="显示名称", max_length=50)
+    email: str = Field(default="", description="邮箱", max_length=100)
+
+
+class LoginRequest(BaseModel):
+    """用户登录请求"""
+    username: str = Field(..., description="用户名")
+    password: str = Field(..., description="密码")
+
+
+class TokenResponse(BaseModel):
+    """Token响应"""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user: dict
+
+
+class RefreshRequest(BaseModel):
+    """刷新Token请求"""
+    refresh_token: str = Field(..., description="刷新令牌")
+
+
+@app.post("/api/v1/auth/register", tags=["认证"])
+async def register(request: RegisterRequest):
+    """
+    用户注册接口
+    创建新用户并返回JWT令牌
+    """
+    existing = db.get_user_by_username(request.username)
+    if existing:
+        raise HTTPException(status_code=409, detail="用户名已存在")
+
+    password_hash = auth_module.hash_password(request.password)
+    user = db.create_user(
+        username=request.username,
+        password_hash=password_hash,
+        display_name=request.display_name or request.username,
+        email=request.email,
+    )
+    if user is None:
+        raise HTTPException(status_code=500, detail="用户创建失败")
+
+    access_token = auth_module.create_access_token(request.username, user["id"])
+    refresh_token = auth_module.create_refresh_token(request.username, user["id"])
+    logger.info("新用户注册: %s", request.username)
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user={"id": user["id"], "username": user["username"], "display_name": user["display_name"]},
+    )
+
+
+@app.post("/api/v1/auth/login", tags=["认证"])
+async def login(request: LoginRequest):
+    """
+    用户登录接口
+    验证用户名密码，返回JWT令牌
+    """
+    user = db.get_user_by_username(request.username)
+    if user is None:
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    if not auth_module.verify_password(request.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    access_token = auth_module.create_access_token(request.username, user["id"])
+    refresh_token = auth_module.create_refresh_token(request.username, user["id"])
+    logger.info("用户登录: %s", request.username)
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user={"id": user["id"], "username": user["username"], "display_name": user["display_name"]},
+    )
+
+
+@app.post("/api/v1/auth/refresh", tags=["认证"])
+async def refresh_token(request: RefreshRequest):
+    """
+    刷新访问令牌
+    使用refresh_token获取新的access_token
+    """
+    payload = auth_module.decode_token(request.refresh_token)
+    if payload is None or payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="无效的刷新令牌")
+
+    username = payload.get("sub")
+    user_id = payload.get("user_id")
+    if not username or not user_id:
+        raise HTTPException(status_code=401, detail="无效的令牌内容")
+
+    new_access = auth_module.create_access_token(username, user_id)
+    new_refresh = auth_module.create_refresh_token(username, user_id)
+
+    return TokenResponse(
+        access_token=new_access,
+        refresh_token=new_refresh,
+        user={"id": user_id, "username": username},
+    )
+
+
+@app.get("/api/v1/auth/me", tags=["认证"])
+async def get_me(user: Tuple[str, int] = Depends(get_jwt_user)):
+    """
+    获取当前登录用户信息
+    需要JWT认证
+    """
+    if user is None:
+        raise HTTPException(status_code=401, detail="请先登录")
+    username, user_id = user
+    user_info = db.get_user_by_id(user_id)
+    if user_info is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return user_info
+
+
+# ========== 业务API端点 ==========
+
 @app.get("/", response_model=HealthResponse, tags=["系统"])
 async def health_check():
     """
@@ -410,22 +523,44 @@ async def fund_qa(request: FundQARequest, api_key: str = Depends(verify_api_key)
     """
     私募基金运作指引问答接口
     支持22条私募基金核心规则的智能匹配问答
+    支持多轮对话：传入 thread_id 可保持上下文记忆
     """
     try:
+        # 多轮对话上下文：获取同一线程的历史对话
+        context_messages = []
+        if request.thread_id:
+            try:
+                history = db.get_conversation_history(request.thread_id)
+                # 取最近4条消息作为上下文
+                context_messages = [(m["role"], m["content"]) for m in history[-4:]]
+            except Exception as e:
+                logger.debug("获取对话上下文失败: %s", str(e))
+
         assistant = get_fund_qa_assistant()
-        answer = await asyncio.to_thread(assistant.process_query, request.query)
+        # 构建带上下文的查询
+        if context_messages:
+            context_str = "\n".join([f"[{r}]: {c[:200]}" for r, c in context_messages])
+            full_query = f"对话历史：\n{context_str}\n\n当前问题：{request.query}"
+        else:
+            full_query = request.query
+
+        answer = await asyncio.wait_for(
+            asyncio.to_thread(assistant.process_query, full_query),
+            timeout=settings.request_timeout
+        )
         # 提取分类前缀
         category = ""
         if answer.startswith("【") and "】" in answer:
             end_idx = answer.index("】")
             category = answer[1:end_idx]
-        # 持久化对话记录
+        # 持久化对话记录（复用传入的 thread_id 或生成新ID）
+        thread_id = request.thread_id or f"fund-qa-{datetime.now().strftime('%Y%m%d%H%M%S')}"
         db.save_conversation(
-            thread_id=f"fund-qa-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            thread_id=thread_id,
             role="user", content=request.query, tab_type="fund-qa"
         )
         db.save_conversation(
-            thread_id=f"fund-qa-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            thread_id=thread_id,
             role="assistant", content=answer, tab_type="fund-qa"
         )
         return FundQAResponse(
@@ -433,6 +568,9 @@ async def fund_qa(request: FundQARequest, api_key: str = Depends(verify_api_key)
             answer=answer,
             category=category
         )
+    except asyncio.TimeoutError:
+        logger.error("私募基金问答超时: query=%s", request.query[:50])
+        raise HTTPException(status_code=504, detail="私募基金问答处理超时，请稍后重试")
     except ValueError as e:
         logger.error("私募基金问答ValueError: %s", str(e))
         raise HTTPException(status_code=500, detail=str(e))
@@ -446,11 +584,28 @@ async def research(request: ResearchRequest, api_key: str = Depends(verify_api_k
     """
     智能投研分析接口
     五阶段深度分析流程：感知→建模→推理→决策→报告
+    支持多轮对话：传入 thread_id 可保持上下文记忆
     """
     try:
+        # 多轮对话上下文：获取同一线程的历史对话
+        context_messages = []
+        if request.thread_id:
+            try:
+                history = db.get_conversation_history(request.thread_id)
+                context_messages = [(m["role"], m["content"]) for m in history[-4:]]
+            except Exception as e:
+                logger.debug("获取投研上下文失败: %s", str(e))
+
+        # 构建带上下文的查询
+        if context_messages:
+            context_str = "\n".join([f"[{r}]: {c[:200]}" for r, c in context_messages])
+            full_topic = f"此前对话：\n{context_str}\n\n当前研究主题：{request.topic}"
+        else:
+            full_topic = request.topic
+
         workflow = get_research_workflow()
         initial_state = {
-            "research_topic": request.topic,
+            "research_topic": full_topic,
             "industry_focus": request.industry,
             "time_horizon": request.horizon,
             "perception_data": None,
@@ -483,8 +638,8 @@ async def research(request: ResearchRequest, api_key: str = Depends(verify_api_k
             horizon=request.horizon,
             status="completed"
         )
-        # 持久化对话记录
-        thread_id = f"research-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        # 持久化对话记录（复用传入的 thread_id 或生成新ID）
+        thread_id = request.thread_id or f"research-{datetime.now().strftime('%Y%m%d%H%M%S')}"
         db.save_conversation(thread_id=thread_id, role="user", content=request.topic, tab_type="research")
         db.save_conversation(thread_id=thread_id, role="assistant", content=report_content[:500], tab_type="research")
 
@@ -614,6 +769,22 @@ async def list_conversation_threads(api_key: str = Depends(verify_api_key)):
     return db.get_all_threads()
 
 
+@app.get("/api/v1/conversations/{thread_id}", tags=["对话管理"])
+async def get_thread_messages(thread_id: str, api_key: str = Depends(verify_api_key)):
+    """获取指定线程的所有消息"""
+    messages = db.get_conversation_history(thread_id)
+    return messages
+
+
+@app.delete("/api/v1/conversations/{thread_id}", tags=["对话管理"])
+async def delete_conversation_thread(thread_id: str, api_key: str = Depends(verify_api_key)):
+    """删除指定对话线程及其所有消息"""
+    success = db.delete_thread(thread_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="对话线程不存在")
+    return {"message": "删除成功", "thread_id": thread_id}
+
+
 @app.get("/api/v1/reports", tags=["投研报告"])
 async def list_reports(api_key: str = Depends(verify_api_key)):
     """获取投研报告列表"""
@@ -723,6 +894,230 @@ async def wealth_advisor_stream(
             yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@app.get("/api/v1/research/stream", tags=["投研分析（流式）"])
+async def research_stream(
+    topic: str,
+    industry: str = "综合",
+    horizon: str = "中期",
+    thread_id: Optional[str] = None,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    投研分析流式接口（SSE）
+    实时推送五阶段（感知→建模→推理→决策→报告）的进度和结果
+    支持多轮对话：传入 thread_id 可保持上下文记忆
+    """
+    from fastapi.responses import StreamingResponse
+    from deliberative_research_langgraph import run_research_agent_stream
+
+    async def generate():
+        report_text = ""
+        try:
+            # 多轮对话上下文
+            context_messages = []
+            if thread_id:
+                try:
+                    history = db.get_conversation_history(thread_id)
+                    context_messages = [(m["role"], m["content"]) for m in history[-4:]]
+                except Exception as e:
+                    logger.debug("获取投研流式上下文失败: %s", str(e))
+
+            if context_messages:
+                context_str = "\n".join([f"[{r}]: {c[:200]}" for r, c in context_messages])
+                full_topic = f"此前对话：\n{context_str}\n\n当前研究主题：{topic}"
+            else:
+                full_topic = topic
+
+            def sync_gen():
+                return run_research_agent_stream(full_topic, industry, horizon)
+
+            import concurrent.futures
+            loop = asyncio.get_event_loop()
+            gen = await loop.run_in_executor(None, sync_gen)
+
+            # 将迭代移到线程中，通过队列传递
+            queue = asyncio.Queue()
+            stop_event = threading.Event()
+
+            def producer():
+                try:
+                    for event in gen():
+                        if stop_event.is_set():
+                            break
+                        asyncio.run_coroutine_threadsafe(queue.put(("data", event)), loop)
+                    asyncio.run_coroutine_threadsafe(queue.put(("done", None)), loop)
+                except Exception as e:
+                    asyncio.run_coroutine_threadsafe(queue.put(("error", str(e))), loop)
+
+            thread = threading.Thread(target=producer, daemon=True)
+            thread.start()
+
+            while True:
+                try:
+                    msg_type, data = await asyncio.wait_for(queue.get(), timeout=settings.request_timeout)
+                except asyncio.TimeoutError:
+                    yield f"data: {json.dumps({'event': 'error', 'error': '处理超时，请稍后重试'}, ensure_ascii=False)}\n\n"
+                    stop_event.set()
+                    return
+
+                if msg_type == "done":
+                    # 持久化对话记录
+                    try:
+                        tid = thread_id or f"research-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                        db.save_conversation(thread_id=tid, role="user", content=topic, tab_type="research")
+                        db.save_conversation(thread_id=tid, role="assistant", content=report_text[:500], tab_type="research")
+                    except Exception as ps_err:
+                        logger.debug("保存流式对话记录失败: %s", str(ps_err))
+                    return
+                elif msg_type == "error":
+                    yield f"data: {json.dumps({'error': data}, ensure_ascii=False)}\n\n"
+                    return
+                else:
+                    # 累积报告内容（用于持久化）
+                    if isinstance(data, dict) and data.get("event") == "complete":
+                        report_text = data.get("report", "")
+                    yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(0.01)
+
+        except Exception as e:
+            logger.error("流式投研异常: %s", str(e))
+            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ========== 系统监控端点 ==========
+
+class SystemMetrics(BaseModel):
+    """系统监控指标"""
+    uptime_seconds: float
+    total_requests: int
+    rate_limited_count: int
+    db_size_mb: float
+    api_status: str
+    kb_status: str
+
+
+# 全局计数器（修复：添加线程锁保证并发安全）
+_start_time = time.time()
+_total_requests = 0
+_rate_limited_count = 0
+_counters_lock = threading.Lock()
+
+
+@app.get("/api/v1/health/metrics", response_model=SystemMetrics, tags=["系统监控"])
+async def system_metrics():
+    """
+    系统监控指标端点
+    返回运行状态、请求统计、数据库大小等信息
+    """
+    global _total_requests, _rate_limited_count
+    db_size = os.path.getsize(str(db.DB_PATH)) / (1024 * 1024) if os.path.exists(str(db.DB_PATH)) else 0
+
+    # 检查知识库状态
+    kb_status = "未加载"
+    try:
+        from knowledge_base import get_knowledge_base
+        kb = get_knowledge_base()
+        stats = kb.get_statistics()
+        kb_status = f"已加载 ({stats['total_documents']}条文档, {'向量' if stats['embedding_enabled'] else '文本'}模式)"
+    except Exception:
+        pass
+
+    return SystemMetrics(
+        uptime_seconds=round(time.time() - _start_time, 1),
+        total_requests=_total_requests,
+        rate_limited_count=_rate_limited_count,
+        db_size_mb=round(db_size, 2),
+        api_status="healthy",
+        kb_status=kb_status,
+    )
+
+
+@app.get("/api/v1/health/detailed", tags=["系统监控"])
+async def detailed_health():
+    """
+    详细健康检查（含LLM连接测试、数据库检查、知识库状态）
+    """
+    health_info = {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "checks": {
+            "database": "ok" if os.path.exists(str(db.DB_PATH)) else "error",
+            "llm": "unknown",
+            "knowledge_base": "unknown",
+        },
+        "version": settings.app_version,
+        "uptime_seconds": round(time.time() - _start_time, 1),
+    }
+
+    # 检查LLM
+    from llm_factory import is_llm_available
+    health_info["checks"]["llm"] = "available" if is_llm_available() else "unavailable"
+
+    # 检查知识库
+    try:
+        from knowledge_base import get_knowledge_base
+        kb = get_knowledge_base()
+        health_info["checks"]["knowledge_base"] = f"loaded ({len(kb.documents)} docs)"
+    except Exception as e:
+        health_info["checks"]["knowledge_base"] = f"error: {str(e)}"
+
+    # 如有任一检查失败，设置整体状态为 degraded
+    if any(v == "error" or v.startswith("error") for v in health_info["checks"].values()):
+        health_info["status"] = "degraded"
+
+    return health_info
+
+
+# 更新中间件以增加请求计数
+@app.middleware("http")
+async def enhanced_request_middleware(request: Request, call_next):
+    """
+    增强版请求中间件：速率限制 + 请求计数 + 日志（线程安全）
+    """
+    global _total_requests, _rate_limited_count
+    with _counters_lock:
+        _total_requests += 1
+
+    client_ip = request.client.host if request.client else "unknown"
+    start_time = time.time()
+
+    # 速率限制检查（健康检查接口和根路径豁免）
+    skip_paths = {"/", "/docs", "/redoc", "/openapi.json"}
+    if request.url.path not in skip_paths and not request.url.path.startswith("/api/v1/health"):
+        if not rate_limiter.is_allowed(client_ip):
+            with _counters_lock:
+                _rate_limited_count += 1
+            logger.warning("速率限制触发: IP=%s, Path=%s", client_ip, request.url.path)
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=429,
+                content={"detail": f"请求过于频繁，请稍后再试（限制：{settings.rate_limit_per_minute}次/分钟）"}
+            )
+
+    # 执行请求
+    try:
+        response = await call_next(request)
+    except asyncio.TimeoutError:
+        logger.error("请求超时: IP=%s, Path=%s", client_ip, request.url.path)
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=504, content={"detail": "请求处理超时"})
+    except Exception as e:
+        logger.error("请求处理异常: IP=%s, Path=%s, Error=%s", client_ip, request.url.path, str(e))
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=500, content={"detail": "服务器内部错误"})
+
+    # 请求日志
+    process_time = time.time() - start_time
+    logger.info(
+        "请求: %s %s IP=%s 耗时=%.2fs 状态=%d",
+        request.method, request.url.path, client_ip, process_time, response.status_code
+    )
+
+    return response
 
 
 # ========== 启动入口 ==========

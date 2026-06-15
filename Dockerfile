@@ -17,6 +17,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 复制后端代码
 COPY web_api.py .
 COPY main.py .
+COPY db.py .
+COPY auth.py .
+COPY llm_factory.py .
 COPY .env.example .env
 
 # 复制三个子系统

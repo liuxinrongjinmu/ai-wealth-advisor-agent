@@ -1,5 +1,5 @@
 # 智能投顾AI助手系统 - 依赖清单
-# Python 3.8+
+# Python 3.11+
 
 # LangChain 核心框架
 langchain>=1.2.0
@@ -20,6 +20,16 @@ pydantic-settings>=2.0.0
 fastapi>=0.100.0
 uvicorn>=0.23.0
 
+# JWT认证
+PyJWT>=2.8.0
+passlib[bcrypt]>=1.7.4
+
+# 环境变量加载
+python-dotenv>=1.0.0
+
+# CORS支持
+# (fastapi内置，无需额外安装)
+
 # Python 标准库（无需安装）：
 # - difflib (SequenceMatcher)
 # - json
@@ -28,3 +38,5 @@ uvicorn>=0.23.0
 # - logging
 # - datetime
 # - typing
+# - asyncio
+# - threading

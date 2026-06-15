@@ -31,12 +31,29 @@ from langgraph.graph import StateGraph, END
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from llm_factory import get_llm, is_llm_available
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# 配置日志（注意：web_api.py 的 setup_logging() 会统一配置，此处仅获取 logger）
 logger = logging.getLogger(__name__)
+
+
+def _invoke_llm_with_retry(chain, input_data: dict, stage_name: str, max_retries: int = 3) -> Any:
+    """
+    通用LLM调用重试函数（修复：抽取5个阶段中重复的重试逻辑）
+    :param chain: LangChain链式调用对象
+    :param input_data: 输入数据字典
+    :param stage_name: 阶段名称（用于日志）
+    :param max_retries: 最大重试次数
+    :return: LLM调用结果
+    :raises Exception: 所有重试均失败时抛出最后一次异常
+    """
+    for attempt in range(max_retries):
+        try:
+            return chain.invoke(input_data)
+        except Exception as e:
+            last_error = str(e)
+            if attempt == max_retries - 1:
+                # 所有重试均失败，抛出脱敏后的错误信息
+                raise RuntimeError(f"{stage_name}处理失败，已重试{max_retries}次") from e
+            logger.warning("%s第%d次尝试失败，正在重试...", stage_name, attempt + 1)
 
 # 定义输出模型
 class PerceptionOutput(BaseModel):
@@ -239,20 +256,10 @@ def perception(state: ResearchAgentState) -> ResearchAgentState:
             "time_horizon": state["time_horizon"]
         }
 
-        # 调用LLM，增加重试机制
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                chain = prompt | get_llm() | JsonOutputParser()
-                result = chain.invoke(input_data)
-                break
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    raise
-                logger.warning(f"感知阶段第{attempt + 1}次尝试失败，正在重试...")
-        else:
-            raise Exception("感知阶段LLM调用失败")
-        
+        # 调用LLM，增加重试机制（使用通用重试函数）
+        chain = prompt | get_llm() | JsonOutputParser()
+        result = _invoke_llm_with_retry(chain, input_data, "感知阶段")
+
         # 更新状态
         logger.info("感知阶段完成")
         return {
@@ -261,10 +268,10 @@ def perception(state: ResearchAgentState) -> ResearchAgentState:
             "current_phase": "modeling"
         }
     except Exception as e:
-        logger.error(f"感知阶段出错: {str(e)}")
+        logger.error("感知阶段处理失败: %s", str(e))
         return {
             **state,
-            "error": f"感知阶段出错: {str(e)}",
+            "error": f"感知阶段处理失败，请稍后重试",
             "current_phase": "perception"  # 保持在当前阶段
         }
 
@@ -295,19 +302,9 @@ def modeling(state: ResearchAgentState) -> ResearchAgentState:
             "perception_data": json.dumps(state["perception_data"], ensure_ascii=False, indent=2)
         }
         
-        # 调用LLM，增加重试机制
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                chain = prompt | get_llm() | JsonOutputParser()
-                result = chain.invoke(input_data)
-                break
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    raise
-                logger.warning(f"建模阶段第{attempt + 1}次尝试失败，正在重试...")
-        else:
-            raise Exception("建模阶段LLM调用失败")
+        # 调用LLM，增加重试机制（使用通用重试函数）
+        chain = prompt | get_llm() | JsonOutputParser()
+        result = _invoke_llm_with_retry(chain, input_data, "建模阶段")
 
         # 更新状态
         logger.info("建模阶段完成")
@@ -317,10 +314,10 @@ def modeling(state: ResearchAgentState) -> ResearchAgentState:
             "current_phase": "reasoning"
         }
     except Exception as e:
-        logger.error(f"建模阶段出错: {str(e)}")
+        logger.error("建模阶段处理失败: %s", str(e))
         return {
             **state,
-            "error": f"建模阶段出错: {str(e)}",
+            "error": f"建模阶段处理失败，请稍后重试",
             "current_phase": "modeling"  # 保持在当前阶段
         }
 
@@ -351,19 +348,9 @@ def reasoning(state: ResearchAgentState) -> ResearchAgentState:
             "world_model": json.dumps(state["world_model"], ensure_ascii=False, indent=2)
         }
         
-        # 调用LLM，增加重试机制
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                chain = prompt | get_llm() | JsonOutputParser()
-                result = chain.invoke(input_data)
-                break
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    raise
-                logger.warning(f"推理阶段第{attempt + 1}次尝试失败，正在重试...")
-        else:
-            raise Exception("推理阶段LLM调用失败")
+        # 调用LLM，增加重试机制（使用通用重试函数）
+        chain = prompt | get_llm() | JsonOutputParser()
+        result = _invoke_llm_with_retry(chain, input_data, "推理阶段")
 
         # 更新状态
         logger.info("推理阶段完成")
@@ -373,10 +360,10 @@ def reasoning(state: ResearchAgentState) -> ResearchAgentState:
             "current_phase": "decision"
         }
     except Exception as e:
-        logger.error(f"推理阶段出错: {str(e)}")
+        logger.error("推理阶段处理失败: %s", str(e))
         return {
             **state,
-            "error": f"推理阶段出错: {str(e)}",
+            "error": f"推理阶段处理失败，请稍后重试",
             "current_phase": "reasoning"  # 保持在当前阶段
         }
 
@@ -408,19 +395,9 @@ def decision(state: ResearchAgentState) -> ResearchAgentState:
             "reasoning_plans": json.dumps(state["reasoning_plans"], ensure_ascii=False, indent=2)
         }
         
-        # 调用LLM，增加重试机制
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                chain = prompt | get_llm() | JsonOutputParser()
-                result = chain.invoke(input_data)
-                break
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    raise
-                logger.warning(f"决策阶段第{attempt + 1}次尝试失败，正在重试...")
-        else:
-            raise Exception("决策阶段LLM调用失败")
+        # 调用LLM，增加重试机制（使用通用重试函数）
+        chain = prompt | get_llm() | JsonOutputParser()
+        result = _invoke_llm_with_retry(chain, input_data, "决策阶段")
 
         # 更新状态
         logger.info("决策阶段完成")
@@ -430,10 +407,10 @@ def decision(state: ResearchAgentState) -> ResearchAgentState:
             "current_phase": "report"
         }
     except Exception as e:
-        logger.error(f"决策阶段出错: {str(e)}")
+        logger.error("决策阶段处理失败: %s", str(e))
         return {
             **state,
-            "error": f"决策阶段出错: {str(e)}",
+            "error": f"决策阶段处理失败，请稍后重试",
             "current_phase": "decision"  # 保持在当前阶段
         }
 
@@ -466,19 +443,9 @@ def report_generation(state: ResearchAgentState) -> ResearchAgentState:
             "selected_plan": json.dumps(state["selected_plan"], ensure_ascii=False, indent=2)
         }
         
-        # 调用LLM，增加重试机制
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                chain = prompt | get_llm() | StrOutputParser()
-                result = chain.invoke(input_data)
-                break
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    raise
-                logger.warning(f"报告生成阶段第{attempt + 1}次尝试失败，正在重试...")
-        else:
-            raise Exception("报告生成阶段LLM调用失败")
+        # 调用LLM，增加重试机制（使用通用重试函数）
+        chain = prompt | get_llm() | StrOutputParser()
+        result = _invoke_llm_with_retry(chain, input_data, "报告生成阶段")
 
         # 更新状态
         logger.info("报告生成阶段完成")
@@ -488,10 +455,10 @@ def report_generation(state: ResearchAgentState) -> ResearchAgentState:
             "current_phase": "completed"
         }
     except Exception as e:
-        logger.error(f"报告生成阶段出错: {str(e)}")
+        logger.error("报告生成阶段处理失败: %s", str(e))
         return {
             **state,
-            "error": f"报告生成阶段出错: {str(e)}",
+            "error": "报告生成阶段处理失败，请稍后重试",
             "current_phase": "report"  # 保持在当前阶段
         }
 
@@ -566,6 +533,86 @@ async def arun_research_agent(topic: str, industry: str, horizon: str) -> Dict[s
     """
     import asyncio
     return await asyncio.to_thread(run_research_agent, topic, industry, horizon)
+
+
+def run_research_agent_stream(topic: str, industry: str, horizon: str):
+    """
+    运行研究智能体并流式返回每个阶段的结果（生成器版本）
+    每个阶段按节点逐步执行，yield SSE兼容的事件字典
+    :param topic: 研究主题
+    :param industry: 行业焦点
+    :param horizon: 时间范围
+    :yield: 阶段事件字典，包含 stage / status / data 字段
+    """
+    agent = create_research_agent_workflow()
+    stages = [
+        ("perception", "感知阶段", "正在收集市场数据和信息..."),
+        ("modeling", "建模阶段", "正在构建行业分析模型..."),
+        ("reasoning", "推理阶段", "正在生成投资逻辑和策略..."),
+        ("decision", "决策阶段", "正在评估和选择最优方案..."),
+        ("report", "报告阶段", "正在生成完整投研报告..."),
+    ]
+
+    # 初始状态
+    state: Dict[str, Any] = {
+        "research_topic": topic,
+        "industry_focus": industry,
+        "time_horizon": horizon,
+        "perception_data": None,
+        "world_model": None,
+        "reasoning_plans": None,
+        "selected_plan": None,
+        "final_report": None,
+        "current_phase": "perception",
+        "error": None
+    }
+
+    # 逐节点执行并推送进度
+    for stage_key, stage_name, stage_desc in stages:
+        yield {"event": "stage_start", "stage": stage_key, "name": stage_name, "message": stage_desc}
+
+        try:
+            node_fn = {
+                "perception": perception,
+                "modeling": modeling,
+                "reasoning": reasoning,
+                "decision": decision,
+                "report": report_generation,
+            }[stage_key]
+            state = node_fn(state)
+
+            if state.get("error"):
+                yield {"event": "error", "stage": stage_key, "error": state["error"]}
+                return
+
+            # 推送阶段完成和概要数据
+            summary = ""
+            if stage_key == "perception" and state.get("perception_data"):
+                summary = f"完成数据收集，识别了{len(str(state['perception_data']).split('\\n'))}条市场信息"
+            elif stage_key == "modeling" and state.get("world_model"):
+                summary = "完成行业模型构建"
+            elif stage_key == "reasoning" and state.get("reasoning_plans"):
+                summary = f"生成了投资策略方案"
+            elif stage_key == "decision" and state.get("selected_plan"):
+                summary = "已选择最优投资方案"
+            elif stage_key == "report" and state.get("final_report"):
+                summary = "投研报告生成完毕"
+
+            yield {"event": "stage_done", "stage": stage_key, "name": stage_name, "summary": summary}
+
+        except Exception as e:
+            logger.exception("阶段 %s 执行失败", stage_key)
+            yield {"event": "error", "stage": stage_key, "error": str(e)}
+            return
+
+    # 推送完整报告
+    yield {
+        "event": "complete",
+        "report": state.get("final_report", "未生成报告"),
+        "topic": topic,
+        "industry": industry,
+        "horizon": horizon,
+    }
 
 # 主函数
 if __name__ == "__main__":

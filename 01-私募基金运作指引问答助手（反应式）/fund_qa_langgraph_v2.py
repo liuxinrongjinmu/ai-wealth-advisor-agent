@@ -18,6 +18,7 @@ import json
 import os
 import sys
 import logging
+from datetime import datetime
 from typing import Dict, List, Any, Tuple, Optional
 from functools import lru_cache
 from langchain_core.prompts import ChatPromptTemplate
@@ -309,6 +310,7 @@ class FundQAAssistant:
     def process_query(self, query: str) -> str:
         """
         处理用户查询的主方法，所有返回都加【分类】前缀
+        三级匹配策略：特殊处理器 → 规则匹配 → RAG知识库检索 → LLM兜底
         :param query: 用户查询文本
         :return: 带分类前缀的回答
         """
@@ -332,12 +334,26 @@ class FundQAAssistant:
         # 步骤4: 选择最佳匹配规则
         best_rule_id, best_score = self._select_best_match(combined_scores)
 
-        # 步骤5: 特殊处理器处理
+        # 步骤5: 特殊处理器处理（通过 rule_id → handler_name 映射表路由）
         if best_score > 0:
             rule = self._get_rule_by_id(best_rule_id)
             if rule:
-                handler_name = f"{best_rule_id.replace('rule', '').lower()}_handler"
-                if handler_name in self.special_handlers:
+                # rule_id 到 handler 名称的映射表（修复：原代码 handler_name 构造错误导致永远无法匹配）
+                rule_to_handler = {
+                    "rule001": "qualified_investor_handler", "rule002": "minimum_capital_handler",
+                    "rule003": "manager_qualification_handler", "rule004": "raising_period_handler",
+                    "rule005": "risk_reserve_handler", "rule006": "risk_rating_handler",
+                    "rule007": "manager_responsibility_handler", "rule008": "disclosure_handler",
+                    "rule009": "contract_content_handler", "rule010": "regulatory_reporting_handler",
+                    "rule011": "investment_assets_handler", "rule012": "concentration_limit_handler",
+                    "rule013": "fee_structure_handler", "rule014": "management_fee_handler",
+                    "rule015": "performance_fee_handler", "rule016": "exit_mechanism_handler",
+                    "rule017": "liquidation_distribution_handler", "rule018": "forced_liquidation_handler",
+                    "rule019": "main_risks_handler", "rule020": "risk_management_handler",
+                    "rule021": "compliance_handler", "rule022": "prohibited_actions_handler",
+                }
+                handler_name = rule_to_handler.get(best_rule_id)
+                if handler_name and handler_name in self.special_handlers:
                     result = self.special_handlers[handler_name](query, rule)
                 else:
                     result = self._generate_standard_response(query, rule)
@@ -347,8 +363,31 @@ class FundQAAssistant:
                 self._save_to_cache(query, result)
                 return result
 
-        # 步骤6: LLM增强回答（当匹配度不高时）
-        # 兜底也加上分类
+        # 步骤6: RAG知识库检索（规则匹配不足时，尝试语义检索补充）
+        try:
+            from knowledge_base import get_knowledge_base
+            kb = get_knowledge_base()
+            kb_results = kb.search(query, top_k=2)
+            if kb_results and kb_results[0].get('score', 0) > 0.15:
+                best_kb = kb_results[0]
+                kb_answer = (
+                    f"{best_kb['title']}\n\n{best_kb['content']}\n\n"
+                    f"---\n📋 **RAG知识库来源**: \n"
+                    f"- 法规分类：{best_kb['category']}\n"
+                    f"- 规则编号：{best_kb['id']}\n"
+                    f"- 匹配得分：{best_kb.get('score', 0):.2f}\n"
+                    f"- 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+                    f"💡 *本回答由知识库直接检索生成，如需更详细解释请重新提问。*"
+                )
+                result = f"【{best_kb['category']}】{kb_answer}"
+                self._save_to_cache(query, result)
+                return result
+        except ImportError:
+            logger.debug("RAG知识库未安装，跳过语义检索")
+        except Exception as e:
+            logger.debug("RAG知识库检索跳过: %s", str(e))
+
+        # 步骤7: LLM增强回答（当匹配度不高时）
         rule = self._get_rule_by_id(best_rule_id) if best_rule_id else None
         category = rule['category'] if rule and 'category' in rule else '其他'
         result = self._generate_llm_enhanced_response(query)
@@ -450,8 +489,9 @@ class FundQAAssistant:
         return None
 
     def _generate_standard_response(self, query: str, rule: Dict[str, Any]) -> str:
-        """生成标准回答"""
-        return f"{rule['question']}\n\n{rule['answer']}"
+        """生成标准回答（含法规来源引用）"""
+        source = f"\n\n---\n📋 **来源引用**: \n- 法规：{rule.get('regulation', '《私募投资基金监督管理条例》')}\n- 类别：{rule['category']}\n- 规则编号：{rule['id']}\n- 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n💡 *如需了解更详细的条款内容，建议查阅《私募投资基金监督管理条例》正文或咨询专业律师。*"
+        return f"{rule['question']}\n\n{rule['answer']}{source}"
 
     def _generate_llm_enhanced_response(self, query: str) -> str:
         """
@@ -487,7 +527,8 @@ class FundQAAssistant:
                     "answer": best_rule['answer'],
                     "query": query
                 })
-                return f"{best_rule['question']}\n\n{llm_answer}"
+                source = f"\n\n---\n📋 **来源引用**: \n- 法规：{best_rule.get('regulation', '《私募投资基金监督管理条例》')}\n- 类别：{best_rule['category']}\n- 规则编号：{best_rule['id']}\n- 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n💡 *如需了解更详细的条款内容，建议查阅《私募投资基金监督管理条例》正文或咨询专业律师。*"
+                return f"{best_rule['question']}\n\n{llm_answer}{source}"
             except Exception as e:
                 logger.error(f"LLM增强回答生成失败: {str(e)}")
                 return f"抱歉，处理您的问题时出现错误：{str(e)}"

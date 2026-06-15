@@ -34,16 +34,19 @@
 ├── main.py                                                # 统一入口脚本（CLI）
 ├── web_api.py                                             # Web API服务（FastAPI）
 ├── 01-私募基金运作指引问答助手（反应式）/
-│   ├── fund_qa_langgraph_v2.py                            # 核心代码：22条规则 + 多级匹配
-│   ├── test_qa_assistant.py                               # 快速测试（7用例）
-│   └── test_comprehensive.py                              # 综合测试（67用例）
+│   └── fund_qa_langgraph_v2.py                            # 核心代码：22条规则 + 多级匹配
 ├── 02-智能投研助手（深思熟虑）/
-│   ├── deliberative_research_langgraph.py                 # 核心代码：五阶段投研流程
-│   ├── test_research_assistant.py                         # 测试脚本（5项测试）
-│   └── research_report_20260127_143626.txt                # 生成报告样本
-└── 03-投顾AI助手（混合式）/
-    ├── hybrid_wealth_advisor_langgraph.py                 # 核心代码：混合路由 + 客户画像
-    └── test_wealth_advisor.py                             # 测试脚本（7项测试）
+│   └── deliberative_research_langgraph.py                 # 核心代码：五阶段投研流程
+├── 03-投顾AI助手（混合式）/
+│   └── hybrid_wealth_advisor_langgraph.py                 # 核心代码：混合路由 + 客户画像
+├── frontend/                                              # React前端（TypeScript + TailwindCSS）
+├── tests/                                                 # pytest测试套件
+│   ├── conftest.py                                        # 测试配置
+│   ├── test_fund_qa.py                                    # 基金问答测试（14用例）
+│   └── test_web_api.py                                    # Web API测试（10用例）
+├── db.py                                                  # SQLite数据库层
+├── llm_factory.py                                         # 共享LLM工厂
+├── Dockerfile + docker-compose.yml                        # 容器化部署
 ```
 
 ---
@@ -165,10 +168,14 @@ python "03-投顾AI助手（混合式）/hybrid_wealth_advisor_langgraph.py"
 ### 4. 运行测试
 
 ```bash
-python "01-私募基金运作指引问答助手（反应式）/test_qa_assistant.py"
-python "01-私募基金运作指引问答助手（反应式）/test_comprehensive.py"
-python "02-智能投研助手（深思熟虑）/test_research_assistant.py"
-python "03-投顾AI助手（混合式）/test_wealth_advisor.py"
+# 运行全部测试
+pytest tests/ -v
+
+# 运行基金问答测试
+pytest tests/test_fund_qa.py -v
+
+# 运行Web API测试
+pytest tests/test_web_api.py -v
 ```
 
 ---

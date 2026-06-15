@@ -24,10 +24,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Literal, TypedDict, Optional, Union, Tuple, cast
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_community.llms import Tongyi
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
-# PydanticOutputParser 未在本代码中使用，注释掉导入
-# from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
 # 以下导入在新版 langchain 中已被移除或重构，注释掉
@@ -42,11 +39,7 @@ warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from llm_factory import get_llm, is_llm_available
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# 配置日志（注意：web_api.py 的 setup_logging() 会统一配置，此处仅获取 logger）
 logger = logging.getLogger(__name__)
 
 # 定义客户信息数据结构
@@ -289,7 +282,7 @@ def _fetch_realtime_index(symbol: str, name: str) -> Optional[Dict[str, str]]:
                 continue
             fields = match.group(1).split(",")
             if len(fields) < 4:
-                last_error = f"行情数据字段不足({symbol}): 期望>=4个字段，实际%d个", len(fields)
+                last_error = f"行情数据字段不足({symbol}): 期望>=4个字段，实际{len(fields)}个"
                 logger.warning(last_error)
                 _market_circuit_breaker.record_failure()
                 continue
